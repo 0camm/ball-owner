@@ -4,7 +4,7 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local CFG = {
-	AFK_TIMEOUT      = 5,
+	AFK_TIMEOUT      = 3,
 	BALL_RADIUS      = 25,
 	INPUT_THRESHOLD  = 0.15,
 	MOVE_HZ          = 1/20,
