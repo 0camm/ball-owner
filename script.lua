@@ -8,6 +8,7 @@ local PLAYER_INPUT_THRESHOLD = 0.2
 local hidden = false
 local lastInputTime = tick()
 local AFK_TIMEOUT = 5
+local BALL_RADIUS = 20
 
 UserInputService.InputBegan:Connect(function()
 	lastInputTime = tick()
@@ -43,9 +44,11 @@ local function findBall()
 		if candidate then
 			if hrp then
 				local d = (candidate.Position - hrp.Position).Magnitude
-				if not nearestDist or d < nearestDist then
-					nearest = candidate
-					nearestDist = d
+				if d <= BALL_RADIUS then
+					if not nearestDist or d < nearestDist then
+						nearest = candidate
+						nearestDist = d
+					end
 				end
 			elseif not nearest then
 				nearest = candidate
@@ -257,8 +260,6 @@ RunService.RenderStepped:Connect(function()
 		return
 	end
 
-	setStatus("Active", Color3.fromRGB(30, 200, 30))
-
 	local character = LocalPlayer.Character
 	if not character then return end
 
@@ -267,7 +268,12 @@ RunService.RenderStepped:Connect(function()
 	if not humanoid or not myHRP then return end
 
 	local ball, _ = findBall()
-	if not ball then return end
+	if not ball then
+		setStatus("No Ball", Color3.fromRGB(100, 100, 100))
+		return
+	end
+
+	setStatus("Active", Color3.fromRGB(30, 200, 30))
 
 	local moveDir = humanoid.MoveDirection
 	if moveDir and moveDir.Magnitude > PLAYER_INPUT_THRESHOLD then return end
