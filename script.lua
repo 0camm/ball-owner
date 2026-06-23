@@ -9,6 +9,8 @@ local hidden = false
 local lastInputTime = tick()
 local AFK_TIMEOUT = 5
 local BALL_RADIUS = 20
+local tickCount = 0
+local THROTTLE = 3
 
 UserInputService.InputBegan:Connect(function()
 	lastInputTime = tick()
@@ -41,222 +43,172 @@ local function findBall()
 			candidate = v
 		end
 
-		if candidate then
-			if hrp then
-				local d = (candidate.Position - hrp.Position).Magnitude
-				if d <= BALL_RADIUS then
-					if not nearestDist or d < nearestDist then
-						nearest = candidate
-						nearestDist = d
-					end
-				end
-			elseif not nearest then
+		if candidate and hrp then
+			local d = (candidate.Position - hrp.Position).Magnitude
+			if d <= BALL_RADIUS and (not nearestDist or d < nearestDist) then
 				nearest = candidate
+				nearestDist = d
 			end
 		end
 	end
 
-	return nearest, nearestDist
+	return nearest
 end
 
 local function hasBall()
 	local char = LocalPlayer.Character
 	if not char then return false end
 	for _, v in pairs(char:GetDescendants()) do
-		if v:IsA("Tool") and (v.Name == "Ball" or v.Name == "Basketball") then
-			return true
-		end
-		if v:IsA("BasePart") and (v.Name == "Ball" or v.Name == "Basketball") then
+		if (v:IsA("Tool") or v:IsA("BasePart")) and (v.Name == "Ball" or v.Name == "Basketball") then
 			return true
 		end
 	end
 	return false
 end
 
+-- UI
+local coreGui = game:GetService("CoreGui")
+
+local existing = coreGui:FindFirstChild("__hud")
+if existing then existing:Destroy() end
+
 local gui = Instance.new("ScreenGui")
+gui.Name = "__hud"
 gui.ResetOnSpawn = false
-gui.Name = "OwnerGui"
-gui.Parent = game:GetService("CoreGui")
+gui.DisplayOrder = 999
+gui.Parent = coreGui
 
-local main = Instance.new("Frame")
-main.Name = "Main"
-main.Parent = gui
-main.Size = UDim2.new(0, 220, 0, 110)
-main.Position = UDim2.new(0, 20, 0.5, -55)
-main.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
-main.BorderSizePixel = 0
-main.Active = true
-main.Draggable = true
+-- pill indicator (always visible, tiny)
+local pill = Instance.new("Frame")
+pill.Size = UDim2.new(0, 6, 0, 6)
+pill.Position = UDim2.new(1, -14, 0, 14)
+pill.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+pill.BorderSizePixel = 0
+pill.Parent = gui
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 10)
-corner.Parent = main
+local pillCorner = Instance.new("UICorner")
+pillCorner.CornerRadius = UDim.new(1, 0)
+pillCorner.Parent = pill
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(60, 60, 60)
-stroke.Thickness = 1.2
-stroke.Parent = main
+local pillBtn = Instance.new("TextButton")
+pillBtn.Size = UDim2.new(0, 24, 0, 24)
+pillBtn.Position = UDim2.new(1, -26, 0, 6)
+pillBtn.BackgroundTransparency = 1
+pillBtn.Text = ""
+pillBtn.Parent = gui
 
-local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 32)
-titleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-titleBar.BorderSizePixel = 0
-titleBar.Parent = main
+-- panel
+local panel = Instance.new("Frame")
+panel.Size = UDim2.new(0, 160, 0, 72)
+panel.Position = UDim2.new(1, -172, 0, 36)
+panel.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+panel.BackgroundTransparency = 0.15
+panel.BorderSizePixel = 0
+panel.Active = true
+panel.Draggable = true
+panel.Visible = true
+panel.Parent = gui
 
-local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0, 10)
-titleCorner.Parent = titleBar
+local panelCorner = Instance.new("UICorner")
+panelCorner.CornerRadius = UDim.new(0, 8)
+panelCorner.Parent = panel
 
-local titleFix = Instance.new("Frame")
-titleFix.Size = UDim2.new(1, 0, 0.5, 0)
-titleFix.Position = UDim2.new(0, 0, 0.5, 0)
-titleFix.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-titleFix.BorderSizePixel = 0
-titleFix.Parent = titleBar
+local panelStroke = Instance.new("UIStroke")
+panelStroke.Color = Color3.fromRGB(255, 255, 255)
+panelStroke.Transparency = 0.9
+panelStroke.Thickness = 1
+panelStroke.Parent = panel
 
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -40, 1, 0)
-titleLabel.Position = UDim2.new(0, 12, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "Ball Owner"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 14
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = titleBar
+-- status row
+local dot = Instance.new("Frame")
+dot.Size = UDim2.new(0, 6, 0, 6)
+dot.Position = UDim2.new(0, 12, 0, 14)
+dot.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+dot.BorderSizePixel = 0
+dot.Parent = panel
 
-local hideBtn = Instance.new("TextButton")
-hideBtn.Size = UDim2.new(0, 28, 0, 22)
-hideBtn.Position = UDim2.new(1, -32, 0, 5)
-hideBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-hideBtn.BorderSizePixel = 0
-hideBtn.Text = "−"
-hideBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-hideBtn.Font = Enum.Font.GothamBold
-hideBtn.TextSize = 16
-hideBtn.Parent = titleBar
+local dotCorner2 = Instance.new("UICorner")
+dotCorner2.CornerRadius = UDim.new(1, 0)
+dotCorner2.Parent = dot
 
-local hideBtnCorner = Instance.new("UICorner")
-hideBtnCorner.CornerRadius = UDim.new(0, 6)
-hideBtnCorner.Parent = hideBtn
+local statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(1, -28, 0, 20)
+statusLbl.Position = UDim2.new(0, 24, 0, 6)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text = "off"
+statusLbl.TextColor3 = Color3.fromRGB(100, 100, 100)
+statusLbl.Font = Enum.Font.Gotham
+statusLbl.TextSize = 11
+statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+statusLbl.Parent = panel
 
-local content = Instance.new("Frame")
-content.Name = "Content"
-content.Size = UDim2.new(1, 0, 1, -32)
-content.Position = UDim2.new(0, 0, 0, 32)
-content.BackgroundTransparency = 1
-content.Parent = main
-
-local statusDot = Instance.new("Frame")
-statusDot.Size = UDim2.new(0, 10, 0, 10)
-statusDot.Position = UDim2.new(0, 16, 0, 18)
-statusDot.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
-statusDot.BorderSizePixel = 0
-statusDot.Parent = content
-
-local dotCorner = Instance.new("UICorner")
-dotCorner.CornerRadius = UDim.new(1, 0)
-dotCorner.Parent = statusDot
-
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -36, 0, 26)
-statusLabel.Position = UDim2.new(0, 32, 0, 12)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Inactive"
-statusLabel.TextColor3 = Color3.fromRGB(160, 160, 160)
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 13
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.Parent = content
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(1, -24, 0, 34)
-toggleBtn.Position = UDim2.new(0, 12, 1, -44)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-toggleBtn.BorderSizePixel = 0
-toggleBtn.Text = "Enable"
-toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 14
-toggleBtn.Parent = content
+-- toggle
+local toggle = Instance.new("TextButton")
+toggle.Size = UDim2.new(1, -24, 0, 28)
+toggle.Position = UDim2.new(0, 12, 1, -38)
+toggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggle.BorderSizePixel = 0
+toggle.Text = "activate"
+toggle.TextColor3 = Color3.fromRGB(160, 160, 160)
+toggle.Font = Enum.Font.Gotham
+toggle.TextSize = 11
+toggle.Parent = panel
 
 local toggleCorner = Instance.new("UICorner")
-toggleCorner.CornerRadius = UDim.new(0, 8)
-toggleCorner.Parent = toggleBtn
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = toggle
 
 local toggleStroke = Instance.new("UIStroke")
-toggleStroke.Color = Color3.fromRGB(60, 60, 60)
+toggleStroke.Color = Color3.fromRGB(255, 255, 255)
+toggleStroke.Transparency = 0.92
 toggleStroke.Thickness = 1
-toggleStroke.Parent = toggleBtn
+toggleStroke.Parent = toggle
 
-local tabBtn = Instance.new("TextButton")
-tabBtn.Size = UDim2.new(0, 28, 0, 22)
-tabBtn.Position = UDim2.new(0, 20, 0.5, -11)
-tabBtn.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-tabBtn.BorderSizePixel = 0
-tabBtn.Text = "●"
-tabBtn.TextColor3 = Color3.fromRGB(100, 100, 100)
-tabBtn.Font = Enum.Font.GothamBold
-tabBtn.TextSize = 12
-tabBtn.Visible = false
-tabBtn.Parent = gui
-
-local tabCorner = Instance.new("UICorner")
-tabCorner.CornerRadius = UDim.new(0, 6)
-tabCorner.Parent = tabBtn
-
-local tabStroke = Instance.new("UIStroke")
-tabStroke.Color = Color3.fromRGB(60, 60, 60)
-tabStroke.Thickness = 1
-tabStroke.Parent = tabBtn
-
-local function setStatus(text, color)
-	statusLabel.Text = text
-	statusLabel.TextColor3 = color
-	statusDot.BackgroundColor3 = color
+local function setStatus(text, dotColor, textColor)
+	statusLbl.Text = text
+	statusLbl.TextColor3 = textColor or dotColor
+	dot.BackgroundColor3 = dotColor
+	pill.BackgroundColor3 = dotColor
 end
 
 local function setState(state)
 	owning = state
 	if state then
-		setStatus("Active", Color3.fromRGB(30, 200, 30))
-		toggleBtn.Text = "Disable"
-		toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 30)
-		toggleStroke.Color = Color3.fromRGB(30, 160, 30)
+		setStatus("active", Color3.fromRGB(100, 220, 100), Color3.fromRGB(140, 240, 140))
+		toggle.Text = "deactivate"
+		toggle.TextColor3 = Color3.fromRGB(120, 220, 120)
+		toggleStroke.Color = Color3.fromRGB(80, 180, 80)
+		toggleStroke.Transparency = 0.6
 	else
-		setStatus("Inactive", Color3.fromRGB(160, 160, 160))
-		toggleBtn.Text = "Enable"
-		toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-		toggleStroke.Color = Color3.fromRGB(60, 60, 60)
+		setStatus("off", Color3.fromRGB(80, 80, 80), Color3.fromRGB(100, 100, 100))
+		toggle.Text = "activate"
+		toggle.TextColor3 = Color3.fromRGB(160, 160, 160)
+		toggleStroke.Color = Color3.fromRGB(255, 255, 255)
+		toggleStroke.Transparency = 0.92
 	end
 end
 
-hideBtn.MouseButton1Click:Connect(function()
-	hidden = true
-	main.Visible = false
-	tabBtn.Visible = true
+pillBtn.MouseButton1Click:Connect(function()
+	panel.Visible = not panel.Visible
 end)
 
-tabBtn.MouseButton1Click:Connect(function()
-	hidden = false
-	main.Visible = true
-	tabBtn.Visible = false
-end)
-
-toggleBtn.MouseButton1Click:Connect(function()
+toggle.MouseButton1Click:Connect(function()
 	setState(not owning)
 end)
 
-RunService.RenderStepped:Connect(function()
+RunService.Heartbeat:Connect(function()
 	if not owning then return end
 
+	tickCount = tickCount + 1
+	if tickCount % THROTTLE ~= 0 then return end
+
 	if isAFK() then
-		setStatus("AFK", Color3.fromRGB(255, 165, 0))
+		setStatus("afk", Color3.fromRGB(220, 140, 40), Color3.fromRGB(220, 160, 80))
 		return
 	end
 
 	if hasBall() then
-		setStatus("Has Ball", Color3.fromRGB(255, 215, 0))
+		setStatus("holding", Color3.fromRGB(220, 200, 60), Color3.fromRGB(240, 220, 80))
 		return
 	end
 
@@ -267,13 +219,13 @@ RunService.RenderStepped:Connect(function()
 	local myHRP = character:FindFirstChild("HumanoidRootPart")
 	if not humanoid or not myHRP then return end
 
-	local ball, _ = findBall()
+	local ball = findBall()
 	if not ball then
-		setStatus("No Ball", Color3.fromRGB(100, 100, 100))
+		setStatus("waiting", Color3.fromRGB(80, 80, 80), Color3.fromRGB(100, 100, 100))
 		return
 	end
 
-	setStatus("Active", Color3.fromRGB(30, 200, 30))
+	setStatus("active", Color3.fromRGB(100, 220, 100), Color3.fromRGB(140, 240, 140))
 
 	local moveDir = humanoid.MoveDirection
 	if moveDir and moveDir.Magnitude > PLAYER_INPUT_THRESHOLD then return end
