@@ -142,6 +142,26 @@ local C = {
 	white    = Color3.fromRGB(255, 255, 255),
 }
 
+-- ── Stealth dot (always visible, top-right) ──
+local DOT_SIZE = 8
+local DOT_PAD  = 14
+
+local dotFrame = Instance.new("Frame", sg)
+dotFrame.Size             = UDim2.new(0, DOT_SIZE, 0, DOT_SIZE)
+dotFrame.Position         = UDim2.new(1, -(DOT_PAD + DOT_SIZE), 0, DOT_PAD)
+dotFrame.BackgroundColor3 = C.dim
+dotFrame.BorderSizePixel  = 0
+dotFrame.ZIndex           = 20
+Instance.new("UICorner", dotFrame).CornerRadius = UDim.new(1, 0)
+
+-- invisible hit area around the dot
+local dotBtn = Instance.new("TextButton", sg)
+dotBtn.Size                   = UDim2.new(0, 28, 0, 28)
+dotBtn.Position               = UDim2.new(1, -(DOT_PAD + DOT_SIZE + 10), 0, DOT_PAD - 10)
+dotBtn.BackgroundTransparency = 1
+dotBtn.Text                   = ""
+dotBtn.ZIndex                 = 21
+
 -- ── Root panel ──
 local PANEL_W = 200
 
@@ -447,11 +467,16 @@ uStroke.Thickness    = 1
 
 -- ── Status logic ──
 
+dotBtn.MouseButton1Click:Connect(function()
+	panel.Visible = not panel.Visible
+end)
+
 local function setStatus(text, color)
-	badgeLbl.Text       = text
-	badgeLbl.TextColor3 = color
-	badgeStroke.Color   = color
-	badgeStroke.Transparency = 0.6
+	badgeLbl.Text             = text
+	badgeLbl.TextColor3       = color
+	badgeStroke.Color         = color
+	badgeStroke.Transparency  = 0.6
+	dotFrame.BackgroundColor3 = color  -- dot mirrors status at a glance
 end
 
 local function setState(state)
