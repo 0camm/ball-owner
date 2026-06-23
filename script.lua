@@ -1,10 +1,25 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local owning = false
 local PLAYER_INPUT_THRESHOLD = 0.2
 local hidden = false
+local lastInputTime = tick()
+local AFK_TIMEOUT = 5
+
+UserInputService.InputBegan:Connect(function()
+	lastInputTime = tick()
+end)
+
+UserInputService.InputChanged:Connect(function()
+	lastInputTime = tick()
+end)
+
+local function isAFK()
+	return tick() - lastInputTime > AFK_TIMEOUT
+end
 
 local function findBall()
 	local char = LocalPlayer.Character
@@ -38,7 +53,21 @@ local function findBall()
 		end
 	end
 
-	return nearest
+	return nearest, nearestDist
+end
+
+local function hasBall()
+	local char = LocalPlayer.Character
+	if not char then return false end
+	for _, v in pairs(char:GetDescendants()) do
+		if v:IsA("Tool") and (v.Name == "Ball" or v.Name == "Basketball") then
+			return true
+		end
+		if v:IsA("BasePart") and (v.Name == "Ball" or v.Name == "Basketball") then
+			return true
+		end
+	end
+	return false
 end
 
 local gui = Instance.new("ScreenGui")
@@ -178,19 +207,21 @@ tabStroke.Color = Color3.fromRGB(60, 60, 60)
 tabStroke.Thickness = 1
 tabStroke.Parent = tabBtn
 
+local function setStatus(text, color)
+	statusLabel.Text = text
+	statusLabel.TextColor3 = color
+	statusDot.BackgroundColor3 = color
+end
+
 local function setState(state)
 	owning = state
 	if state then
-		statusDot.BackgroundColor3 = Color3.fromRGB(30, 200, 30)
-		statusLabel.Text = "Active"
-		statusLabel.TextColor3 = Color3.fromRGB(30, 200, 30)
+		setStatus("Active", Color3.fromRGB(30, 200, 30))
 		toggleBtn.Text = "Disable"
 		toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 100, 30)
 		toggleStroke.Color = Color3.fromRGB(30, 160, 30)
 	else
-		statusDot.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
-		statusLabel.Text = "Inactive"
-		statusLabel.TextColor3 = Color3.fromRGB(160, 160, 160)
+		setStatus("Inactive", Color3.fromRGB(160, 160, 160))
 		toggleBtn.Text = "Enable"
 		toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 		toggleStroke.Color = Color3.fromRGB(60, 60, 60)
@@ -216,6 +247,18 @@ end)
 RunService.RenderStepped:Connect(function()
 	if not owning then return end
 
+	if isAFK() then
+		setStatus("AFK", Color3.fromRGB(255, 165, 0))
+		return
+	end
+
+	if hasBall() then
+		setStatus("Has Ball", Color3.fromRGB(255, 215, 0))
+		return
+	end
+
+	setStatus("Active", Color3.fromRGB(30, 200, 30))
+
 	local character = LocalPlayer.Character
 	if not character then return end
 
@@ -223,7 +266,7 @@ RunService.RenderStepped:Connect(function()
 	local myHRP = character:FindFirstChild("HumanoidRootPart")
 	if not humanoid or not myHRP then return end
 
-	local ball = findBall()
+	local ball, _ = findBall()
 	if not ball then return end
 
 	local moveDir = humanoid.MoveDirection
