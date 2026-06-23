@@ -1,9 +1,11 @@
--- assist v2 — clean UI rebuild
+-- assist — basketball positioning tool
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer      = Players.LocalPlayer
+
+-- ─── Config ───────────────────────────────────────────────────────────────────
 
 local CFG = {
 	AFK_TIMEOUT     = 2.5,
@@ -17,8 +19,10 @@ local CFG = {
 	REACTION_DELAY  = 0,
 	HUMANIZE        = true,
 	PRESSURE_ON     = true,
-	BALL_NAMES      = {Ball = true, Basketball = true},
+	BALL_NAMES      = { Ball = true, Basketball = true },
 }
+
+-- ─── State ────────────────────────────────────────────────────────────────────
 
 local owning         = false
 local lastInputTime  = tick()
@@ -34,7 +38,7 @@ local humanizeTimer  = 0
 local heartbeatConn  = nil
 local inputConns     = {}
 
--- ─── Core Logic ───────────────────────────────────────────────────────────────
+-- ─── Ball Logic ───────────────────────────────────────────────────────────────
 
 local function clearBallCache()
 	cachedBall = nil
@@ -95,7 +99,7 @@ local function randomOffset()
 	return Vector3.new((math.random()-0.5)*0.6, 0, (math.random()-0.5)*0.6)
 end
 
--- ─── Unload (declared early for UI reference) ─────────────────────────────────
+-- ─── Unload ───────────────────────────────────────────────────────────────────
 
 local function unload()
 	owning = false
@@ -103,380 +107,438 @@ local function unload()
 	if heartbeatConn then heartbeatConn:Disconnect(); heartbeatConn = nil end
 	for _, c in next, inputConns do c:Disconnect() end
 	inputConns = {}
-	local cg  = game:GetService("CoreGui")
-	local old = cg:FindFirstChild("__assist_gui")
-	if old then old:Destroy() end
+	local gui = game:GetService("CoreGui"):FindFirstChild("__assist")
+	if gui then gui:Destroy() end
 end
 
--- ─── Input Tracking ───────────────────────────────────────────────────────────
+-- ─── Input tracking ───────────────────────────────────────────────────────────
 
-table.insert(inputConns, UserInputService.InputBegan:Connect(function()  lastInputTime = tick() end))
+table.insert(inputConns, UserInputService.InputBegan:Connect(function()   lastInputTime = tick() end))
 table.insert(inputConns, UserInputService.InputChanged:Connect(function() lastInputTime = tick() end))
 
 -- ─── UI ───────────────────────────────────────────────────────────────────────
 
-local cg  = game:GetService("CoreGui")
-local old = cg:FindFirstChild("__assist_gui")
-if old then old:Destroy() end
+local cg = game:GetService("CoreGui")
+local existing = cg:FindFirstChild("__assist")
+if existing then existing:Destroy() end
 
 local sg = Instance.new("ScreenGui")
-sg.Name           = "__assist_gui"
+sg.Name           = "__assist"
 sg.ResetOnSpawn   = false
 sg.DisplayOrder   = 999
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent         = cg
 
--- ── Palette ──
+-- Colour palette
 local C = {
-	bg       = Color3.fromRGB(10, 10, 10),
-	surface  = Color3.fromRGB(16, 16, 16),
-	surface2 = Color3.fromRGB(22, 22, 22),
-	border   = Color3.fromRGB(38, 38, 38),
-	text     = Color3.fromRGB(180, 180, 180),
-	muted    = Color3.fromRGB(70, 70, 70),
-	dim      = Color3.fromRGB(45, 45, 45),
-	green    = Color3.fromRGB(80, 210, 100),
-	greenDim = Color3.fromRGB(25, 60, 30),
-	amber    = Color3.fromRGB(220, 160, 50),
-	red      = Color3.fromRGB(200, 70, 70),
-	white    = Color3.fromRGB(255, 255, 255),
+	bg        = Color3.fromRGB(9,  9,  9),
+	surface   = Color3.fromRGB(15, 15, 15),
+	surface2  = Color3.fromRGB(20, 20, 20),
+	row       = Color3.fromRGB(13, 13, 13),
+	border    = Color3.fromRGB(32, 32, 32),
+	text      = Color3.fromRGB(160, 160, 160),
+	muted     = Color3.fromRGB(75,  75,  75),
+	dim       = Color3.fromRGB(42,  42,  42),
+	green     = Color3.fromRGB(72,  200, 90),
+	greenBg   = Color3.fromRGB(18,  48,  22),
+	amber     = Color3.fromRGB(215, 155, 45),
+	yellow    = Color3.fromRGB(200, 185, 55),
+	red       = Color3.fromRGB(180, 55,  55),
+	redBg     = Color3.fromRGB(40,  12,  12),
 }
 
--- ── Stealth dot (always visible, top-right) ──
-local DOT_SIZE = 8
-local DOT_PAD  = 14
+-- ── Helpers ──────────────────────────────────────────────────────────────────
 
-local dotFrame = Instance.new("Frame", sg)
-dotFrame.Size             = UDim2.new(0, DOT_SIZE, 0, DOT_SIZE)
-dotFrame.Position         = UDim2.new(1, -(DOT_PAD + DOT_SIZE), 0, DOT_PAD)
-dotFrame.BackgroundColor3 = C.dim
-dotFrame.BorderSizePixel  = 0
-dotFrame.ZIndex           = 20
-Instance.new("UICorner", dotFrame).CornerRadius = UDim.new(1, 0)
-
--- invisible hit area around the dot
-local dotBtn = Instance.new("TextButton", sg)
-dotBtn.Size                   = UDim2.new(0, 28, 0, 28)
-dotBtn.Position               = UDim2.new(1, -(DOT_PAD + DOT_SIZE + 10), 0, DOT_PAD - 10)
-dotBtn.BackgroundTransparency = 1
-dotBtn.Text                   = ""
-dotBtn.ZIndex                 = 21
-
--- ── Root panel ──
-local PANEL_W = 200
-
-local panel = Instance.new("Frame", sg)
-panel.Name               = "panel"
-panel.Size               = UDim2.new(0, PANEL_W, 0, 10) -- height driven by layout
-panel.Position           = UDim2.new(1, -(PANEL_W + 14), 0, 14)
-panel.BackgroundColor3   = C.bg
-panel.BorderSizePixel    = 0
-panel.Active             = true
-panel.Draggable          = true
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
-
--- subtle border
-local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color       = C.border
-panelStroke.Transparency = 0
-panelStroke.Thickness   = 1
-
--- list layout drives all height
-local rootLayout = Instance.new("UIListLayout", panel)
-rootLayout.FillDirection       = Enum.FillDirection.Vertical
-rootLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-rootLayout.SortOrder           = Enum.SortOrder.LayoutOrder
-rootLayout.Padding             = UDim.new(0, 0)
-
-rootLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-	panel.Size = UDim2.new(0, PANEL_W, 0, rootLayout.AbsoluteContentSize.Y)
-end)
-
--- ── Header ──
-local header = Instance.new("Frame", panel)
-header.LayoutOrder          = 0
-header.Size                 = UDim2.new(1, 0, 0, 38)
-header.BackgroundColor3     = C.surface
-header.BorderSizePixel      = 0
-Instance.new("UICorner", header).CornerRadius = UDim.new(0, 10)
-
--- square off bottom corners
-local headerFill = Instance.new("Frame", header)
-headerFill.Size             = UDim2.new(1, 0, 0, 10)
-headerFill.Position         = UDim2.new(0, 0, 1, -10)
-headerFill.BackgroundColor3 = C.surface
-headerFill.BorderSizePixel  = 0
-
-local titleLbl = Instance.new("TextLabel", header)
-titleLbl.Size               = UDim2.new(1, -16, 1, 0)
-titleLbl.Position           = UDim2.new(0, 14, 0, 0)
-titleLbl.BackgroundTransparency = 1
-titleLbl.Text               = "AG"
-titleLbl.TextColor3         = C.muted
-titleLbl.Font               = Enum.Font.GothamBold
-titleLbl.TextSize           = 11
-titleLbl.TextXAlignment     = Enum.TextXAlignment.Left
-
--- status badge (right side of header)
-local badge = Instance.new("Frame", header)
-badge.Size             = UDim2.new(0, 60, 0, 18)
-badge.Position         = UDim2.new(1, -72, 0.5, -9)
-badge.BackgroundColor3 = C.surface2
-badge.BorderSizePixel  = 0
-Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 6)
-
-local badgeStroke = Instance.new("UIStroke", badge)
-badgeStroke.Color        = C.border
-badgeStroke.Transparency = 0
-badgeStroke.Thickness    = 1
-
-local badgeLbl = Instance.new("TextLabel", badge)
-badgeLbl.Size               = UDim2.new(1, 0, 1, 0)
-badgeLbl.BackgroundTransparency = 1
-badgeLbl.Text               = "off"
-badgeLbl.TextColor3         = C.dim
-badgeLbl.Font               = Enum.Font.Gotham
-badgeLbl.TextSize           = 9
-badgeLbl.TextXAlignment     = Enum.TextXAlignment.Center
-
--- ── Divider helper ──
-local divOrder = 1
-local function makeDivider(order)
-	local d = Instance.new("Frame", panel)
-	d.LayoutOrder          = order
-	d.Size                 = UDim2.new(1, -28, 0, 1)
-	d.BackgroundColor3     = C.border
-	d.BackgroundTransparency = 0
-	d.BorderSizePixel      = 0
-	return d
+local function corner(inst, r)
+	local c = Instance.new("UICorner", inst)
+	c.CornerRadius = UDim.new(0, r or 6)
+	return c
 end
 
--- ── Section label ──
-local function makeSectionLabel(text, order)
-	local f = Instance.new("Frame", panel)
-	f.LayoutOrder          = order
-	f.Size                 = UDim2.new(1, 0, 0, 22)
-	f.BackgroundTransparency = 1
-	f.BorderSizePixel      = 0
-
-	local lbl = Instance.new("TextLabel", f)
-	lbl.Size               = UDim2.new(1, -28, 1, 0)
-	lbl.Position           = UDim2.new(0, 14, 0, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text               = string.upper(text)
-	lbl.TextColor3         = C.dim
-	lbl.Font               = Enum.Font.GothamBold
-	lbl.TextSize           = 8
-	lbl.TextXAlignment     = Enum.TextXAlignment.Left
+local function stroke(inst, col, thick, trans)
+	local s = Instance.new("UIStroke", inst)
+	s.Color        = col or C.border
+	s.Thickness    = thick or 1
+	s.Transparency = trans or 0
+	return s
 end
 
--- ── Row builders ──
-local rowCount = 10 -- start after header/dividers
+local function frame(parent, props)
+	local f = Instance.new("Frame", parent)
+	f.BackgroundTransparency = props.trans or 0
+	f.BackgroundColor3       = props.bg   or C.bg
+	f.BorderSizePixel        = 0
+	f.Size                   = props.size or UDim2.new(1,0,0,24)
+	f.Position               = props.pos  or UDim2.new(0,0,0,0)
+	if props.zindex then f.ZIndex = props.zindex end
+	return f
+end
 
-local function makeValueRow(label, valStr, onMinus, onPlus)
-	local sec = Instance.new("Frame", panel)
-	sec.LayoutOrder          = rowCount
-	rowCount                 = rowCount + 1
-	sec.Size                 = UDim2.new(1, 0, 0, 30)
-	sec.BackgroundTransparency = 1
-	sec.BorderSizePixel      = 0
+local function label(parent, text, props)
+	local l = Instance.new("TextLabel", parent)
+	l.BackgroundTransparency = 1
+	l.BorderSizePixel        = 0
+	l.Text                   = text
+	l.Font                   = props.font  or Enum.Font.Gotham
+	l.TextSize               = props.size  or 10
+	l.TextColor3             = props.color or C.text
+	l.TextXAlignment         = props.xa    or Enum.TextXAlignment.Left
+	l.TextYAlignment         = props.ya    or Enum.TextYAlignment.Center
+	l.Size                   = props.sz    or UDim2.new(1, 0, 1, 0)
+	l.Position               = props.pos   or UDim2.new(0, 0, 0, 0)
+	l.ZIndex                 = props.zindex or 1
+	return l
+end
 
-	local lbl = Instance.new("TextLabel", sec)
-	lbl.Size               = UDim2.new(0, 90, 1, 0)
-	lbl.Position           = UDim2.new(0, 14, 0, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text               = label
-	lbl.TextColor3         = C.text
-	lbl.Font               = Enum.Font.Gotham
-	lbl.TextSize           = 10
-	lbl.TextXAlignment     = Enum.TextXAlignment.Left
+local function btn(parent, text, props)
+	local b = Instance.new("TextButton", parent)
+	b.BackgroundColor3       = props.bg    or C.surface2
+	b.BackgroundTransparency = props.trans or 0
+	b.BorderSizePixel        = 0
+	b.Text                   = text
+	b.Font                   = props.font  or Enum.Font.Gotham
+	b.TextSize               = props.size  or 10
+	b.TextColor3             = props.color or C.muted
+	b.AutoButtonColor        = false
+	b.Size                   = props.sz    or UDim2.new(0, 60, 0, 22)
+	b.Position               = props.pos   or UDim2.new(0, 0, 0, 0)
+	b.ZIndex                 = props.zindex or 2
+	return b
+end
 
-	local val = Instance.new("TextLabel", sec)
-	val.Size               = UDim2.new(0, 36, 1, 0)
-	val.Position           = UDim2.new(0, 102, 0, 0)
-	val.BackgroundTransparency = 1
-	val.Text               = valStr
-	val.TextColor3         = C.muted
-	val.Font               = Enum.Font.GothamBold
-	val.TextSize           = 10
-	val.TextXAlignment     = Enum.TextXAlignment.Center
+-- ── Stealth dot ──────────────────────────────────────────────────────────────
+-- Small pill in top-right corner; always on screen.
+-- Click anywhere in the 30x30 hit area to show/hide panel.
 
-	local function makeBtn(xOff, label2)
-		local b = Instance.new("TextButton", sec)
-		b.Size             = UDim2.new(0, 20, 0, 20)
-		b.Position         = UDim2.new(1, xOff, 0.5, -10)
-		b.BackgroundColor3 = C.surface2
-		b.BorderSizePixel  = 0
-		b.Text             = label2
-		b.TextColor3       = C.muted
-		b.Font             = Enum.Font.GothamBold
-		b.TextSize         = 12
-		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
-		local s = Instance.new("UIStroke", b)
-		s.Color        = C.border
-		s.Transparency = 0
-		s.Thickness    = 1
+local DOT_W, DOT_H = 6, 6
+local DOT_RIGHT, DOT_TOP = 18, 18
+
+local dotVis = frame(sg, {
+	bg   = C.dim,
+	size = UDim2.new(0, DOT_W, 0, DOT_H),
+	pos  = UDim2.new(1, -(DOT_RIGHT + DOT_W), 0, DOT_TOP),
+	zindex = 50,
+	trans = 0,
+})
+corner(dotVis, 99)
+
+local dotHit = btn(sg, "", {
+	bg    = C.bg,
+	trans = 1,
+	sz    = UDim2.new(0, 28, 0, 28),
+	pos   = UDim2.new(1, -(DOT_RIGHT + DOT_W + 11), 0, DOT_TOP - 11),
+	zindex = 51,
+})
+
+-- ── Panel ────────────────────────────────────────────────────────────────────
+
+local PW = 204   -- panel width
+local PX = -(PW + 12)  -- right edge offset
+local PY = 10    -- top offset
+
+-- Row heights (all explicit, no UIListLayout fighting absolute positioning)
+local ROW_H      = 30
+local HDR_H      = 36
+local SEC_H      = 22
+local DIVIDER_H  = 1
+local BTN_H      = 34
+local FOOT_H     = 28
+local PAD        = 8   -- left/right inner padding
+
+-- We'll accumulate total height as we place rows
+local rows = {}   -- { height }
+local function addRow(h) rows[#rows+1] = h end
+
+-- Calculate layout slots
+-- header
+addRow(HDR_H)
+-- detection section
+addRow(DIVIDER_H) addRow(SEC_H)
+addRow(ROW_H) addRow(ROW_H) addRow(ROW_H)
+-- smoothing
+addRow(DIVIDER_H) addRow(SEC_H)
+addRow(ROW_H)
+-- pressure
+addRow(DIVIDER_H) addRow(SEC_H)
+addRow(ROW_H) addRow(ROW_H)
+-- options
+addRow(DIVIDER_H) addRow(SEC_H)
+addRow(ROW_H) addRow(ROW_H)
+-- activate
+addRow(DIVIDER_H) addRow(BTN_H)
+-- unload
+addRow(FOOT_H)
+
+local totalH = 0
+local rowY   = {}
+for i, h in ipairs(rows) do
+	rowY[i]  = totalH
+	totalH   = totalH + h
+end
+
+local panel = frame(sg, {
+	bg   = C.bg,
+	size = UDim2.new(0, PW, 0, totalH),
+	pos  = UDim2.new(1, PX, 0, PY),
+})
+corner(panel, 10)
+stroke(panel, C.border, 1, 0)
+panel.Active   = true
+panel.Draggable = true
+
+-- ── Header ───────────────────────────────────────────────────────────────────
+
+local rowIdx = 1
+local hdr = frame(panel, {
+	bg   = C.surface,
+	size = UDim2.new(1, 0, 0, HDR_H),
+	pos  = UDim2.new(0, 0, 0, rowY[rowIdx]),
+})
+-- only round top corners
+corner(hdr, 10)
+local hdrFix = frame(hdr, {
+	bg   = C.surface,
+	size = UDim2.new(1, 0, 0, 10),
+	pos  = UDim2.new(0, 0, 1, -10),
+})
+
+label(hdr, "assist", {
+	font  = Enum.Font.GothamBold,
+	size  = 11,
+	color = C.muted,
+	sz    = UDim2.new(0, 60, 1, 0),
+	pos   = UDim2.new(0, PAD+4, 0, 0),
+})
+
+-- status badge in header
+local badgeW = 58
+local badge = frame(hdr, {
+	bg   = C.surface2,
+	size = UDim2.new(0, badgeW, 0, 18),
+	pos  = UDim2.new(1, -(badgeW + PAD), 0.5, -9),
+})
+corner(badge, 5)
+local badgeStroke = stroke(badge, C.border, 1, 0)
+
+local badgeLbl = label(badge, "off", {
+	font  = Enum.Font.GothamBold,
+	size  = 9,
+	color = C.dim,
+	xa    = Enum.TextXAlignment.Center,
+	sz    = UDim2.new(1, 0, 1, 0),
+	zindex = 2,
+})
+rowIdx = rowIdx + 1
+
+-- ── Row builder helpers ───────────────────────────────────────────────────────
+
+local function makeDividerAt(yPos)
+	local d = frame(panel, {
+		bg   = C.border,
+		size = UDim2.new(1, -(PAD*2), 0, 1),
+		pos  = UDim2.new(0, PAD, 0, yPos),
+	})
+end
+
+local function makeSectionAt(yPos, text)
+	local s = frame(panel, {
+		bg   = C.bg,
+		size = UDim2.new(1, 0, 0, SEC_H),
+		pos  = UDim2.new(0, 0, 0, yPos),
+		trans = 1,
+	})
+	label(s, string.upper(text), {
+		font  = Enum.Font.GothamBold,
+		size  = 8,
+		color = C.dim,
+		sz    = UDim2.new(1, -(PAD*2), 1, 0),
+		pos   = UDim2.new(0, PAD+4, 0, 0),
+	})
+end
+
+-- value row: label | value | − | +
+local function makeValueRowAt(yPos, lText, vText, onMinus, onPlus)
+	local r = frame(panel, {
+		bg   = C.bg,
+		size = UDim2.new(1, 0, 0, ROW_H),
+		pos  = UDim2.new(0, 0, 0, yPos),
+		trans = 1,
+	})
+
+	label(r, lText, {
+		size  = 10,
+		color = C.text,
+		sz    = UDim2.new(0, 90, 1, 0),
+		pos   = UDim2.new(0, PAD+4, 0, 0),
+	})
+
+	local valLbl = label(r, vText, {
+		font  = Enum.Font.GothamBold,
+		size  = 10,
+		color = C.muted,
+		xa    = Enum.TextXAlignment.Center,
+		sz    = UDim2.new(0, 38, 1, 0),
+		pos   = UDim2.new(0, 100, 0, 0),
+	})
+
+	local BW, BH = 20, 20
+	local function makeAdjBtn(xOff, sym)
+		local b = btn(r, sym, {
+			bg    = C.surface2,
+			font  = Enum.Font.GothamBold,
+			size  = 12,
+			color = C.muted,
+			sz    = UDim2.new(0, BW, 0, BH),
+			pos   = UDim2.new(1, xOff, 0.5, -BH/2),
+			zindex = 3,
+		})
+		corner(b, 5)
+		stroke(b, C.border, 1, 0)
 		return b
 	end
 
-	local minusBtn = makeBtn(-44, "−")
-	local plusBtn  = makeBtn(-21, "+")
+	local minusB = makeAdjBtn(-(BW*2 + PAD + 4), "−")
+	local plusB  = makeAdjBtn(-(BW   + PAD),     "+")
 
-	minusBtn.MouseButton1Click:Connect(onMinus)
-	plusBtn.MouseButton1Click:Connect(onPlus)
+	minusB.MouseButton1Click:Connect(onMinus)
+	plusB.MouseButton1Click:Connect(onPlus)
 
-	return val
+	return valLbl
 end
 
-local function makeToggleRow(label, init, onChange)
-	local sec = Instance.new("Frame", panel)
-	sec.LayoutOrder          = rowCount
-	rowCount                 = rowCount + 1
-	sec.Size                 = UDim2.new(1, 0, 0, 30)
-	sec.BackgroundTransparency = 1
-	sec.BorderSizePixel      = 0
+-- toggle row: label | pill toggle
+local function makeToggleRowAt(yPos, lText, initState, onChange)
+	local r = frame(panel, {
+		bg   = C.bg,
+		size = UDim2.new(1, 0, 0, ROW_H),
+		pos  = UDim2.new(0, 0, 0, yPos),
+		trans = 1,
+	})
 
-	local lbl = Instance.new("TextLabel", sec)
-	lbl.Size               = UDim2.new(0, 130, 1, 0)
-	lbl.Position           = UDim2.new(0, 14, 0, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text               = label
-	lbl.TextColor3         = C.text
-	lbl.Font               = Enum.Font.Gotham
-	lbl.TextSize           = 10
-	lbl.TextXAlignment     = Enum.TextXAlignment.Left
+	label(r, lText, {
+		size  = 10,
+		color = C.text,
+		sz    = UDim2.new(0, 130, 1, 0),
+		pos   = UDim2.new(0, PAD+4, 0, 0),
+	})
 
-	local state = init
+	local TW, TH = 34, 16
+	local track = frame(r, {
+		bg   = initState and C.greenBg or C.surface2,
+		size = UDim2.new(0, TW, 0, TH),
+		pos  = UDim2.new(1, -(TW + PAD + 2), 0.5, -TH/2),
+	})
+	corner(track, 99)
+	local ts = stroke(track, initState and C.green or C.border, 1, initState and 0.7 or 0)
 
-	local track = Instance.new("Frame", sec)
-	track.Size             = UDim2.new(0, 32, 0, 16)
-	track.Position         = UDim2.new(1, -46, 0.5, -8)
-	track.BackgroundColor3 = state and C.greenDim or C.surface2
-	track.BorderSizePixel  = 0
-	Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
-	local ts = Instance.new("UIStroke", track)
-	ts.Color = state and C.green or C.border; ts.Transparency = state and 0.7 or 0; ts.Thickness = 1
+	local KS = 10
+	local knob = frame(track, {
+		bg   = initState and C.green or C.muted,
+		size = UDim2.new(0, KS, 0, KS),
+		pos  = initState and UDim2.new(1, -(KS+3), 0.5, -KS/2) or UDim2.new(0, 3, 0.5, -KS/2),
+	})
+	corner(knob, 99)
 
-	local knob = Instance.new("Frame", track)
-	knob.Size             = UDim2.new(0, 10, 0, 10)
-	knob.Position         = state and UDim2.new(1, -13, 0.5, -5) or UDim2.new(0, 3, 0.5, -5)
-	knob.BackgroundColor3 = state and C.green or C.muted
-	knob.BorderSizePixel  = 0
-	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+	local state = initState
 
-	local hitbox = Instance.new("TextButton", sec)
-	hitbox.Size             = UDim2.new(0, 36, 0, 24)
-	hitbox.Position         = UDim2.new(1, -48, 0.5, -12)
-	hitbox.BackgroundTransparency = 1
-	hitbox.Text             = ""
-
+	local hitbox = btn(r, "", {
+		trans  = 1,
+		sz     = UDim2.new(0, TW+16, 0, TH+12),
+		pos    = UDim2.new(1, -(TW+PAD+10), 0.5, -(TH+12)/2),
+		zindex = 5,
+	})
 	hitbox.MouseButton1Click:Connect(function()
 		state = not state
-		track.BackgroundColor3 = state and C.greenDim or C.surface2
+		track.BackgroundColor3 = state and C.greenBg or C.surface2
 		ts.Color               = state and C.green or C.border
 		ts.Transparency        = state and 0.7 or 0
-		knob.Position          = state and UDim2.new(1,-13,0.5,-5) or UDim2.new(0,3,0.5,-5)
+		knob.Position          = state and UDim2.new(1,-(KS+3),0.5,-KS/2) or UDim2.new(0,3,0.5,-KS/2)
 		knob.BackgroundColor3  = state and C.green or C.muted
 		onChange(state)
 	end)
 end
 
-local function wireRow(label, key, min2, max2, step, fmt)
-	local function fmtVal() return fmt(CFG[key]) end
-	local valLbl = makeValueRow(label, fmtVal(),
+local function wireValueRow(yPos, lText, key, minV, maxV, step, fmt)
+	local function fmtV() return fmt(CFG[key]) end
+	local vl = makeValueRowAt(yPos, lText, fmtV(),
 		function()
-			CFG[key] = math.max(min2, math.floor((CFG[key]-step)*1000+0.5)/1000)
+			CFG[key] = math.max(minV, math.floor((CFG[key]-step)*1000+0.5)/1000)
 			if key == "BALL_RADIUS" then clearBallCache() end
-			valLbl.Text = fmtVal()
+			vl.Text = fmtV()
 		end,
 		function()
-			CFG[key] = math.min(max2, math.floor((CFG[key]+step)*1000+0.5)/1000)
-			valLbl.Text = fmtVal()
+			CFG[key] = math.min(maxV, math.floor((CFG[key]+step)*1000+0.5)/1000)
+			vl.Text = fmtV()
 		end
 	)
 end
 
--- ── Build layout ──
+-- ── Place all rows ───────────────────────────────────────────────────────────
 
-makeDivider(1)
-makeSectionLabel("detection", 2)
-wireRow("radius",       "BALL_RADIUS",     5,   60,  5,    function(v) return v.."st" end)
-wireRow("sensitivity",  "SENSITIVITY",     0.1, 2.0, 0.1,  function(v) return math.floor(v*100).."%" end)
-wireRow("delay",        "REACTION_DELAY",  0,   1.0, 0.05, function(v) return v.."s" end)
+rowIdx = 2  -- 1 = header (already done)
 
-makeDivider(rowCount) rowCount = rowCount + 1
-makeSectionLabel("smoothing", rowCount) rowCount = rowCount + 1
-wireRow("jitter",       "JITTER_SMOOTH",   0.02, 0.5, 0.02, function(v) return v end)
+makeDividerAt(rowY[rowIdx]); rowIdx = rowIdx + 1
+makeSectionAt(rowY[rowIdx], "detection"); rowIdx = rowIdx + 1
+wireValueRow(rowY[rowIdx], "radius",      "BALL_RADIUS",    5,    60,  5,    function(v) return v.."st" end);         rowIdx = rowIdx + 1
+wireValueRow(rowY[rowIdx], "sensitivity", "SENSITIVITY",    0.1,  2.0, 0.1,  function(v) return math.floor(v*100).."%"end); rowIdx = rowIdx + 1
+wireValueRow(rowY[rowIdx], "delay",       "REACTION_DELAY", 0,    1.0, 0.05, function(v) return v.."s" end);          rowIdx = rowIdx + 1
 
-makeDivider(rowCount) rowCount = rowCount + 1
-makeSectionLabel("pressure", rowCount) rowCount = rowCount + 1
-wireRow("speed",        "PRESSURE_SPEED",  0,   2.0, 0.1,  function(v) return v end)
-wireRow("afk after",    "AFK_TIMEOUT",     2,   30,  1,    function(v) return v.."s" end)
+makeDividerAt(rowY[rowIdx]); rowIdx = rowIdx + 1
+makeSectionAt(rowY[rowIdx], "smoothing"); rowIdx = rowIdx + 1
+wireValueRow(rowY[rowIdx], "jitter",      "JITTER_SMOOTH",  0.02, 0.5, 0.02, function(v) return v end);              rowIdx = rowIdx + 1
 
-makeDivider(rowCount) rowCount = rowCount + 1
-makeSectionLabel("options", rowCount) rowCount = rowCount + 1
-makeToggleRow("humanize",   CFG.HUMANIZE,    function(v) CFG.HUMANIZE    = v end)
-makeToggleRow("pressure",   CFG.PRESSURE_ON, function(v) CFG.PRESSURE_ON = v end)
+makeDividerAt(rowY[rowIdx]); rowIdx = rowIdx + 1
+makeSectionAt(rowY[rowIdx], "pressure"); rowIdx = rowIdx + 1
+wireValueRow(rowY[rowIdx], "speed",       "PRESSURE_SPEED", 0,    2.0, 0.1,  function(v) return v end);              rowIdx = rowIdx + 1
+wireValueRow(rowY[rowIdx], "afk after",   "AFK_TIMEOUT",    2,    30,  1,    function(v) return v.."s" end);         rowIdx = rowIdx + 1
 
-makeDivider(rowCount) rowCount = rowCount + 1
+makeDividerAt(rowY[rowIdx]); rowIdx = rowIdx + 1
+makeSectionAt(rowY[rowIdx], "options"); rowIdx = rowIdx + 1
+makeToggleRowAt(rowY[rowIdx], "humanize", CFG.HUMANIZE,    function(v) CFG.HUMANIZE    = v end); rowIdx = rowIdx + 1
+makeToggleRowAt(rowY[rowIdx], "pressure", CFG.PRESSURE_ON, function(v) CFG.PRESSURE_ON = v end); rowIdx = rowIdx + 1
+
+makeDividerAt(rowY[rowIdx]); rowIdx = rowIdx + 1
 
 -- ── Activate button ──
-local activeSec = Instance.new("Frame", panel)
-activeSec.LayoutOrder          = rowCount
-rowCount                       = rowCount + 1
-activeSec.Size                 = UDim2.new(1, 0, 0, 44)
-activeSec.BackgroundTransparency = 1
-activeSec.BorderSizePixel      = 0
 
-local toggleBtn = Instance.new("TextButton", activeSec)
-toggleBtn.Size             = UDim2.new(1, -28, 0, 28)
-toggleBtn.Position         = UDim2.new(0, 14, 0.5, -14)
-toggleBtn.BackgroundColor3 = C.surface2
-toggleBtn.BorderSizePixel  = 0
-toggleBtn.Text             = "activate"
-toggleBtn.TextColor3       = C.muted
-toggleBtn.Font             = Enum.Font.GothamBold
-toggleBtn.TextSize         = 10
-Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 7)
-local tStroke = Instance.new("UIStroke", toggleBtn)
-tStroke.Color        = C.border
-tStroke.Transparency = 0
-tStroke.Thickness    = 1
+local actY = rowY[rowIdx]; rowIdx = rowIdx + 1
+local actPad = 5
+local toggleBtn = btn(panel, "activate", {
+	bg    = C.surface2,
+	font  = Enum.Font.GothamBold,
+	size  = 10,
+	color = C.muted,
+	sz    = UDim2.new(1, -(PAD*2), 0, BTN_H - actPad*2),
+	pos   = UDim2.new(0, PAD, 0, actY + actPad),
+	zindex = 3,
+})
+corner(toggleBtn, 7)
+local tStroke = stroke(toggleBtn, C.border, 1, 0)
 
 -- ── Unload button ──
-local unloadSec = Instance.new("Frame", panel)
-unloadSec.LayoutOrder          = rowCount
-unloadSec.Size                 = UDim2.new(1, 0, 0, 34)
-unloadSec.BackgroundTransparency = 1
-unloadSec.BorderSizePixel      = 0
 
-local unloadBtn = Instance.new("TextButton", unloadSec)
-unloadBtn.Size             = UDim2.new(1, -28, 0, 22)
-unloadBtn.Position         = UDim2.new(0, 14, 0, 6)
-unloadBtn.BackgroundColor3 = C.bg
-unloadBtn.BorderSizePixel  = 0
-unloadBtn.Text             = "unload script"
-unloadBtn.TextColor3       = Color3.fromRGB(90, 50, 50)
-unloadBtn.Font             = Enum.Font.Gotham
-unloadBtn.TextSize         = 9
-Instance.new("UICorner", unloadBtn).CornerRadius = UDim.new(0, 6)
-local uStroke = Instance.new("UIStroke", unloadBtn)
-uStroke.Color        = Color3.fromRGB(70, 35, 35)
-uStroke.Transparency = 0
-uStroke.Thickness    = 1
+local footY = rowY[rowIdx]
+local unloadBtn = btn(panel, "unload", {
+	bg    = C.bg,
+	trans = 0,
+	font  = Enum.Font.Gotham,
+	size  = 9,
+	color = Color3.fromRGB(80, 42, 42),
+	sz    = UDim2.new(1, -(PAD*2), 0, FOOT_H - 10),
+	pos   = UDim2.new(0, PAD, 0, footY + 5),
+	zindex = 3,
+})
+corner(unloadBtn, 6)
+stroke(unloadBtn, Color3.fromRGB(55, 28, 28), 1, 0)
 
--- ── Status logic ──
-
-dotBtn.MouseButton1Click:Connect(function()
-	panel.Visible = not panel.Visible
-end)
+-- ─── Status & state ──────────────────────────────────────────────────────────
 
 local function setStatus(text, color)
 	badgeLbl.Text             = text
 	badgeLbl.TextColor3       = color
 	badgeStroke.Color         = color
-	badgeStroke.Transparency  = 0.6
-	dotFrame.BackgroundColor3 = color  -- dot mirrors status at a glance
+	badgeStroke.Transparency  = 0.55
+	dotVis.BackgroundColor3   = color
 end
 
 local function setState(state)
@@ -490,9 +552,9 @@ local function setState(state)
 		setStatus("active", C.green)
 		toggleBtn.Text             = "deactivate"
 		toggleBtn.TextColor3       = C.green
-		toggleBtn.BackgroundColor3 = C.greenDim
+		toggleBtn.BackgroundColor3 = C.greenBg
 		tStroke.Color              = C.green
-		tStroke.Transparency       = 0.6
+		tStroke.Transparency       = 0.55
 	else
 		setStatus("off", C.dim)
 		toggleBtn.Text             = "activate"
@@ -503,12 +565,16 @@ local function setState(state)
 	end
 end
 
--- ── Button wiring ──
+-- ─── Button wiring ───────────────────────────────────────────────────────────
 
-toggleBtn.MouseButton1Click:Connect(function()  setState(not owning) end)
-unloadBtn.MouseButton1Click:Connect(function()  unload() end)
+dotHit.MouseButton1Click:Connect(function()
+	panel.Visible = not panel.Visible
+end)
 
--- ─── Main Loop ────────────────────────────────────────────────────────────────
+toggleBtn.MouseButton1Click:Connect(function() setState(not owning) end)
+unloadBtn.MouseButton1Click:Connect(function() unload() end)
+
+-- ─── Main loop ───────────────────────────────────────────────────────────────
 
 heartbeatConn = RunService.Heartbeat:Connect(function()
 	if not owning then return end
@@ -517,7 +583,7 @@ heartbeatConn = RunService.Heartbeat:Connect(function()
 	lastMoveTime = now
 
 	if isAFK() then setStatus("afk", C.amber); return end
-	if hasBall() then setStatus("holding", Color3.fromRGB(200, 190, 60)); return end
+	if hasBall() then setStatus("holding", C.yellow); return end
 
 	local char = LocalPlayer.Character
 	if not char then return end
@@ -529,7 +595,7 @@ heartbeatConn = RunService.Heartbeat:Connect(function()
 
 	local ball = cachedBall
 	if not ball or not ball.Parent then
-		setStatus("scanning", C.dim)
+		setStatus("scanning", C.muted)
 		return
 	end
 
